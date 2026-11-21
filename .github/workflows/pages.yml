@@ -1,0 +1,36 @@
+# Publishes this repository on GitHub Pages after every push to main, with version.json
+# added: the commit's SHA and the time of this build. The repository holds only web builds
+# of Świat Sióstr 3D, pushed by Tools/deploy-web.sh in the game's source repository.
+# Its Pages source must be set to "GitHub Actions" (Settings > Pages).
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write version.json
+        run: echo "{\"sha\":\"${GITHUB_SHA}\",\"date\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > version.json
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v4

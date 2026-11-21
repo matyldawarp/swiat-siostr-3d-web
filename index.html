@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <!-- Full screen on phones: no zoom, content under the notch handled by the canvas. -->
+  <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <!-- "Add to Home Screen" opens the game without Safari's bars. -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Świat Sióstr 3D">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#fff4f8">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <title>Świat Sióstr 3D</title>
+  <!-- Colors from Assets/SwiatSiostr/Core/Palette.cs: Fade #fff4f8, TextTitle #8a5c9e, White, Pink #f7b2cc. -->
+  <style>
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      overflow: hidden; background: #fff4f8;
+      overscroll-behavior: none; touch-action: none;
+      -webkit-user-select: none; user-select: none;
+      -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+    }
+    #unity-canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; background: #fff4f8; }
+    .screen {
+      position: fixed; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 24px;
+      font: 600 22px/1.3 -apple-system, system-ui, sans-serif; color: #8a5c9e; text-align: center;
+    }
+    #loading-bar { width: 50vw; max-width: 320px; height: 16px; border-radius: 8px; background: #ffffff; overflow: hidden; }
+    #loading-fill { width: 0; height: 100%; border-radius: 8px; background: #f7b2cc; transition: width .2s; }
+    #rotate { display: none; background: #fff4f8; z-index: 10; padding: 24px; }
+    #rotate .phone { font-size: 72px; animation: turn 2s ease-in-out infinite; }
+    @keyframes turn { 0%, 30% { transform: rotate(0deg); } 60%, 100% { transform: rotate(-90deg); } }
+    /* The game is landscape only, as on iPad and iPhone; a portrait phone gets a hint to turn it. */
+    @media (orientation: portrait) and (pointer: coarse) { #rotate { display: flex; } }
+    #error { display: none; padding: 24px; }
+  </style>
+</head>
+<body>
+  <canvas id="unity-canvas" tabindex="-1"></canvas>
+  <div id="loading" class="screen">
+    <div>Świat Sióstr 3D</div>
+    <div id="loading-bar"><div id="loading-fill"></div></div>
+  </div>
+  <div id="rotate" class="screen"><div class="phone">📱</div><div>Obróć telefon</div></div>
+  <div id="error" class="screen"></div>
+  <script>
+    // Web Audio on iOS is silenced by the ring/silent switch unless the session plays media
+    // (Safari 16.4+); the app does the same through Assets/Plugins/iOS/AudioSession.mm.
+    if (navigator.audioSession) {
+      try { navigator.audioSession.type = "playback"; } catch (e) {}
+    }
+
+    var canvas = document.querySelector("#unity-canvas");
+    var loading = document.querySelector("#loading");
+    var fill = document.querySelector("#loading-fill");
+
+    // Sharp on Retina screens, but capped so phones keep a steady frame rate.
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    var config = {
+      arguments: [],
+      dataUrl: "Build/Web.data.unityweb",
+      frameworkUrl: "Build/Web.framework.js.unityweb",
+      codeUrl: "Build/Web.wasm.unityweb",
+      streamingAssetsUrl: "StreamingAssets",
+      companyName: "Świat Sióstr",
+      productName: "Świat Sióstr 3D",
+      productVersion: "0.1.0",
+      devicePixelRatio: dpr,
+      matchWebGLToCanvasSize: true,
+      showBanner: function (msg, type) {
+        if (type === "error") {
+          var box = document.querySelector("#error");
+          box.textContent = "Coś poszło nie tak. Odśwież stronę.";
+          box.style.display = "flex";
+        }
+        console.log(msg);
+      }
+    };
+
+    var script = document.createElement("script");
+    script.src = "Build/Web.loader.js";
+    script.onload = function () {
+      createUnityInstance(canvas, config, function (progress) {
+        fill.style.width = (100 * progress) + "%";
+      }).then(function () {
+        loading.style.display = "none";
+      }).catch(function (message) {
+        loading.style.display = "none";
+        var box = document.querySelector("#error");
+        box.textContent = "Ta przeglądarka nie uruchomi gry. " + message;
+        box.style.display = "flex";
+      });
+    };
+    document.body.appendChild(script);
+
+    // Always full screen. Browsers allow it only from a tap or click, so every touch while not in
+    // full screen asks for it: the first one at start, and again after the page leaves full screen.
+    // iPadOS and desktop browsers support this; iPhone Safari does not (Add to Home Screen instead).
+    function goFullscreen() {
+      var root = document.documentElement;
+      if (document.fullscreenElement || document.webkitFullscreenElement) return;
+      var request = root.requestFullscreen || root.webkitRequestFullscreen;
+      if (!request) return;
+      try {
+        var result = request.call(root);
+        if (result && result.catch) result.catch(function () {});
+      } catch (e) {}
+    }
+    document.addEventListener("pointerup", goFullscreen);
+    document.addEventListener("touchend", goFullscreen);
+    document.addEventListener("keydown", goFullscreen);
+
+    // Installable app (manifest.webmanifest); sw.js keeps every file fresh after a deploy.
+    if ("serviceWorker" in navigator && window.isSecureContext) {
+      navigator.serviceWorker.register("sw.js").catch(function () {});
+    }
+
+    // Safari on iOS ignores user-scalable=no for pinch gestures; block them so the page never zooms.
+    document.addEventListener("gesturestart", function (e) { e.preventDefault(); });
+  </script>
+</body>
+</html>
